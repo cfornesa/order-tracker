@@ -1,3 +1,4 @@
+import logging
 import os
 import sqlite3
 from contextlib import asynccontextmanager
@@ -9,6 +10,84 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from opentelemetry import metrics, trace, _logs
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor, ConsoleSpanExporter, BatchSpanProcessor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader, ConsoleMetricExporter
+import sys
+from opentelemetry.sdk._logs import LoggerProvider
+from opentelemetry.instrumentation.logging.handler import LoggingHandler
+from opentelemetry.sdk._logs.export import SimpleLogRecordProcessor, ConsoleLogRecordExporter, BatchLogRecordProcessor
+
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+
+
+class SafeStdoutWriter:
+    def write(self, s):
+        try:
+            sys.stdout.write(s)
+            sys.stdout.flush()
+        except (ValueError, OSError):
+            pass
+
+    def flush(self):
+        try:
+            sys.stdout.flush()
+        except (ValueError, OSError):
+            pass
+
+
+safe_out = SafeStdoutWriter()
+resource = Resource.create({"service.name": "order-tracker"})
+
+# Traces
+tracer_provider = TracerProvider(resource=resource)
+tracer_provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter(out=safe_out)))
+
+# Metrics
+metric_readers = []
+console_metric_reader = PeriodicExportingMetricReader(ConsoleMetricExporter(out=safe_out), export_interval_millis=1000)
+metric_readers.append(console_metric_reader)
+
+# Logs
+logger_provider = LoggerProvider(resource=resource)
+logger_provider.add_log_record_processor(SimpleLogRecordProcessor(ConsoleLogRecordExporter(out=safe_out)))
+_logs.set_logger_provider(logger_provider)
+
+# OTLP Collector Export if endpoint is configured
+otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+if otlp_endpoint:
+    tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint, insecure=True)))
+    otlp_metric_reader = PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=otlp_endpoint, insecure=True), export_interval_millis=1000)
+    metric_readers.append(otlp_metric_reader)
+    logger_provider.add_log_record_processor(BatchLogRecordProcessor(OTLPLogExporter(endpoint=otlp_endpoint, insecure=True)))
+
+trace.set_tracer_provider(tracer_provider)
+tracer = trace.get_tracer("order-tracker")
+
+meter_provider = MeterProvider(resource=resource, metric_readers=metric_readers)
+metrics.set_meter_provider(meter_provider)
+meter = metrics.get_meter("order-tracker")
+
+request_counter = meter.create_counter(
+    name="order_lookup_requests_total",
+    description="Total count of order lookup requests",
+    unit="1",
+)
+http_request_counter = meter.create_counter(
+    name="http_requests_total",
+    description="Total HTTP requests",
+    unit="1",
+)
+
+otel_logging_handler = LoggingHandler(level=logging.INFO, logger_provider=logger_provider)
+logger = logging.getLogger("order-tracker")
+logger.setLevel(logging.INFO)
+logger.addHandler(otel_logging_handler)
 
 DB_PATH = Path(os.getenv("ORDER_DB_PATH", "data/orders.db"))
 STATUSES = {"received", "preparing", "shipped", "delivered"}
@@ -55,7 +134,7 @@ def order_detail(row):
     order = as_dict(row)
     if order["priority"] == "express":
         placed_at = datetime.fromisoformat(order["created_at"])
-        estimated_at = placed_at.replace(day=placed_at.day + 2)
+        estimated_at = placed_at + timedelta(days=2)
         order["estimated_delivery"] = estimated_at.date().isoformat()
     return order
 
@@ -100,11 +179,45 @@ def list_orders():
 
 @app.get("/api/orders/{order_id}")
 def get_order(order_id: str):
-    with connect() as db:
-        row = db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-    if row is None:
-        raise HTTPException(404, "Order not found")
-    return order_detail(row)
+    route = "/api/orders/{order_id}"
+    with tracer.start_as_current_span("order_lookup") as span:
+        span.set_attribute("route", route)
+        span.set_attribute("order.id", order_id)
+        with connect() as db:
+            row = db.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
+        if row is None:
+            status_code = 404
+            span.set_attribute("http.status_code", status_code)
+            span.set_attribute("status_code", status_code)
+            attrs = {"route": route, "status_code": status_code, "http.status_code": status_code}
+            request_counter.add(1, attrs)
+            http_request_counter.add(1, attrs)
+            logger.warning(f"Order {order_id} not found", extra=attrs)
+            console_metric_reader.force_flush()
+            raise HTTPException(404, "Order not found")
+
+        try:
+            detail = order_detail(row)
+            status_code = 200
+            span.set_attribute("http.status_code", status_code)
+            span.set_attribute("status_code", status_code)
+            attrs = {"route": route, "status_code": status_code, "http.status_code": status_code}
+            request_counter.add(1, attrs)
+            http_request_counter.add(1, attrs)
+            logger.info(f"Order {order_id} retrieved successfully", extra=attrs)
+            console_metric_reader.force_flush()
+            return detail
+        except Exception as e:
+            status_code = 500
+            span.set_attribute("http.status_code", status_code)
+            span.set_attribute("status_code", status_code)
+            span.record_exception(e)
+            attrs = {"route": route, "status_code": status_code, "http.status_code": status_code}
+            request_counter.add(1, attrs)
+            http_request_counter.add(1, attrs)
+            logger.error(f"Error retrieving order {order_id}: {e}", exc_info=True, extra=attrs)
+            console_metric_reader.force_flush()
+            raise HTTPException(500, f"Error retrieving order: {e}")
 
 
 @app.post("/api/orders", status_code=201)

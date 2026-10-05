@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-10-05T19:02:30.006651+00:00",
+  "alert": {
+    "receiver": "IncidentResponderWebhook",
+    "status": "firing",
+    "alerts": [
+      {
+        "status": "firing",
+        "labels": {
+          "alertname": "Order Tracker 5xx Errors",
+          "grafana_folder": "Alerts",
+          "severity": "critical"
+        },
+        "annotations": {
+          "dashboard_link": "http://localhost:3000/d/order-tracker-metrics/order-tracker-requests-and-errors",
+          "endpoint": "/api/orders/{order_id}",
+          "summary": "5xx Server Errors in Order Tracker",
+          "time_window": "1m"
+        },
+        "startsAt": "2026-10-05T19:01:40Z",
+        "endsAt": "0001-01-01T00:00:00Z",
+        "generatorURL": "http://localhost:3000/alerting/grafana/fg0c6auija1a8a/view?orgId=1",
+        "fingerprint": "05e9ec43d3e38701",
+        "silenceURL": "http://localhost:3000/alerting/silence/new?alertmanager=grafana&matcher=__alert_rule_uid__%3Dfg0c6auija1a8a&matcher=severity%3Dcritical&orgId=1",
+        "dashboardURL": "",
+        "panelURL": "",
+        "ruleUID": "fg0c6auija1a8a",
+        "values": {
+          "A": 0.09960856383420551,
+          "B": 1
+        },
+        "valueString": "[ var='A' labels={} type='query' value=0.09960856383420551 ], [ var='B' labels={} type='threshold' value=1 ]",
+        "orgId": 1
+      }
+    ],
+    "groupLabels": {
+      "alertname": "Order Tracker 5xx Errors"
+    },
+    "commonLabels": {
+      "alertname": "Order Tracker 5xx Errors",
+      "grafana_folder": "Alerts",
+      "severity": "critical"
+    },
+    "commonAnnotations": {
+      "dashboard_link": "http://localhost:3000/d/order-tracker-metrics/order-tracker-requests-and-errors",
+      "endpoint": "/api/orders/{order_id}",
+      "summary": "5xx Server Errors in Order Tracker",
+      "time_window": "1m"
+    },
+    "externalURL": "http://localhost:3000/",
+    "appVersion": "13.2.3",
+    "version": "1",
+    "groupKey": "{}:{alertname=\"Order Tracker 5xx Errors\"}",
+    "truncatedAlerts": 0,
+    "orgId": 1,
+    "title": "[FIRING:1] Order Tracker 5xx Errors (Alerts critical)",
+    "state": "alerting",
+    "message": "**Firing**\n\nValue: A=0.09960856383420551, B=1\nLabels:\n - alertname = Order Tracker 5xx Errors\n - grafana_folder = Alerts\n - severity = critical\nAnnotations:\n - dashboard_link = http://localhost:3000/d/order-tracker-metrics/order-tracker-requests-and-errors\n - endpoint = /api/orders/{order_id}\n - summary = 5xx Server Errors in Order Tracker\n - time_window = 1m\nSource: http://localhost:3000/alerting/grafana/fg0c6auija1a8a/view?orgId=1\nSilence: http://localhost:3000/alerting/silence/new?alertmanager=grafana&matcher=__alert_rule_uid__%3Dfg0c6auija1a8a&matcher=severity%3Dcritical&orgId=1\n"
+  },
+  "endpoint": "/api/orders/{order_id}",
+  "logs": "1791226885610887424: Error retrieving order express-1002: day is out of range for month\n1791226893927673344: Error retrieving order express-1002: day is out of range for month\n1791226893947924480: Error retrieving order express-1002: day is out of range for month\n1791226893965775104: Error retrieving order express-1002: day is out of range for month\n1791226893981304576: Error retrieving order express-1002: day is out of range for month\n1791226893995192832: Error retrieving order express-1002: day is out of range for month\n1791226378184811264: Order standard-1001 retrieved successfully\n1791226389750094592: Order standard-1002 not found\n1791226735475574528: Order standard-1002 not found",
+  "traces": "{\n  \"traces\": [],\n  \"metrics\": {\n    \"inspectedTraces\": 9,\n    \"inspectedBytes\": \"78092\",\n    \"completedJobs\": 3,\n    \"totalJobs\": 3\n  }\n}"
+}

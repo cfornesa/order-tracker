@@ -1,0 +1,72 @@
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: IncidentResponderWebhook
+    receivers:
+      - uid: incident-responder-webhook
+        type: webhook
+        settings:
+          url: http://host.docker.internal:8001/alerts
+
+policies:
+  - orgId: 1
+    receiver: IncidentResponderWebhook
+    group_by: ['alertname']
+
+groups:
+  - orgId: 1
+    name: order-tracker-alerts
+    folder: Alerts
+    interval: 5s
+    rules:
+      - uid: order-tracker-5xx
+        title: Order Tracker 5xx Errors
+        condition: B
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: Prometheus
+            model:
+              editorMode: code
+              expr: sum(rate(app_order_lookup_requests_total{status_code=~"5.."}[1m])) or sum(app_order_lookup_requests_total{status_code=~"5.."}) or vector(0)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 0
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params:
+                      - B
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                name: Expression
+                type: __expr__
+                uid: __expr__
+              expression: A
+              refId: B
+              type: threshold
+        noDataState: OK
+        execErrState: OK
+        for: 0s
+        annotations:
+          summary: "5xx Server Errors in Order Tracker"
+          endpoint: "/api/orders/{order_id}"
+          time_window: "1m"
+          dashboard_link: "http://localhost:3000/d/order-tracker-metrics/order-tracker-requests-and-errors"
+        labels:
+          severity: critical
